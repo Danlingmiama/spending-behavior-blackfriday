@@ -1,0 +1,526 @@
+---
+title: "Consumer Spending Habits: Maximizing Profits on Black Friday"
+author: "Black Friday - Maddie Adelman, Danling Ma & Xiaohui Liao"
+date: "12/5/2018"
+output:
+  html_document:
+    df_print: paged
+editor_options: 
+  chunk_output_type: console
+---
+
+The URL for our Google drive document is {https://docs.google.com/document/d/1T3_oHoBMlnA8Nxgh2FqpNqtH2oy3_LRf452Zlt3FbtU/edit}
+and our Team GitHub repository is {https://github.com/bladechildrenlxh/-blackfridayproject}. 
+
+Two kernels we used:
+https://www.kaggle.com/gloriousc/black-friday-analysis/
+https://www.kaggle.com/monethong/who-bought-what
+
+The data set we used:
+https://www.kaggle.com/mehdidag/black-friday/downloads/BlackFriday.csv/1
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# clears the environment window pane in RStudio
+#rm(list=ls())
+setwd("~/Desktop/Marketing Analytics/BF/Final Report")
+#setwd("~/Documents/Brandeis/Fall Semester/Marketing Analytics")
+library(readxl)
+library(readr)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(corrplot)
+library(cowplot)
+library(scales)
+library(knitr)
+library(sandwich)
+library(lmtest)
+library(car)
+library(stargazer)
+library(cluster)
+library(MASS)
+library(data.table)
+library(RColorBrewer)
+library(data.table)
+library(ggpubr)
+library(scales)
+library(ggmap)
+library(ggrepel)
+library(forcats)
+select <- dplyr::select 
+summarise <- dplyr::summarise 
+```
+
+#Introduction
+
+  Every year the Friday after Thanksgiving is a day of shopping. Known as Black Friday, the day is characterized by high demand for retail goods. This paper aims to understand the average shopper and the customer behavior on Black Friday for one retail store. There are two hypotheses this paper will study:
+
+  **Hypothesis 1: Average shopper purchase of people living in City A is more than those living in cities B and C.**
+  
+  **Hypothesis 2: The most profitable product categories are categories 1, 5 and 8.**
+  
+Through the analysis of the above hypotheses, this paper will provide suggestions to the retail store on which segment, demographic and city category the store can focus its marketing efforts on. Lastly, using predictive analytics this report suggests the customers the retail firm can target to maximize Black Friday profits. 
+
+#Summary Statistics 
+
+ The analysis of the Black Friday data set used in this paper includes 12 variables: `Product_ID`, `Gender`, `Age`, `City_Category`, `Stay_In_Current_City_Years`, `Marital_Status`, `Product_Category_1` and `Purchase`. This data set is cleaned from the original data set which contained 3 additional variables - `Product_Category_2` and `Product_Category_3`. These three variables are excluded from this analysis because `Product_Category_2` and `Product_Category_3` contain missing observations. Excluding `Product_Category_2` and `Product_Category_3` will not affect the results we have drawn. Although logically a retail product may or may not belong to multiple product categories, for ease these two variables are not analyzed in this paper. For easy interpretation, Product_Category_1 was subsequently renamed Product_Category. The clean Black Friday data set yields 537,577 entities observed for each of the 12 variables.  
+  
+  The Black Friday data set is further cleaned by stating the format of each variable. This included changing `Product_ID`, `Gender`, `Age`, `City_Category`, Marital_Status and Product_Category from character variables to factors. These variables are nominal since they do not have order or a distance metric. 'Age' is ordinal because the age groups are increasing with actual age, but are not equally spaced.  
+  
+```{r include=TRUE,  message=FALSE }
+blackfriday <- as.data.frame(read_csv("BlackFriday.csv"))
+blackfriday_clean = blackfriday %>% select(User_ID, Product_ID, Gender, Age, City_Category, Occupation, Stay_In_Current_City_Years, Marital_Status, Product_Category_1, Purchase)
+#data type
+blackfriday_clean$`Product_ID`=factor(blackfriday_clean$Product_ID)
+blackfriday_clean$Gender = factor(blackfriday_clean$Gender)
+blackfriday_clean$Age = factor(blackfriday_clean$Age)
+blackfriday_clean$Occupation = factor(blackfriday_clean$Occupation)
+blackfriday_clean$Stay_In_Current_City_Years = factor(blackfriday_clean$Stay_In_Current_City_Years)
+blackfriday_clean$City_Category = factor(blackfriday_clean$City_Category)
+blackfriday_clean$Marital_Status = factor(blackfriday_clean$Marital_Status)
+blackfriday_clean$Product_Category_1 = factor(blackfriday_clean$Product_Category_1)
+names(blackfriday_clean)[9] <- 'Product_Category' 
+#BY User_ID: to see the rev. for each user
+df1 = blackfriday_clean %>% group_by(User_ID) %>% summarise(`Shopper Purchase` = sum(Purchase),`Number of Products Sold` = n())
+blackfriday_user = select(blackfriday_clean, User_ID, Gender, Age, City_Category, Marital_Status, Occupation, Stay_In_Current_City_Years)
+blackfriday_user = unique(blackfriday_user)
+blackfriday_user = blackfriday_user %>% left_join(df1, by = 'User_ID')
+#User_ID by Product Category: to see the rev. for each category
+df2 = blackfriday_clean %>% group_by(User_ID,Product_Category) %>% summarise(`Shopper Purchase` = sum(Purchase),`Number of Products Sold` = n())
+User_Category = select(blackfriday_clean, User_ID, Gender, Age, City_Category, Marital_Status, Occupation, Stay_In_Current_City_Years)
+User_Category = unique(User_Category)
+User_Category = User_Category %>% left_join(df2, by = 'User_ID')
+```
+  
+  For the purposes of this report, `City_Category` is assumed the three levels `A`, `B`, and `C` can refer to either type of city (urban/city versus suburban versus rural) or a specific store's location. However, it is important to note that the category that refers to type of city is unknown and is masked from the Kaggle where the authors downloaded the data set. Thus, the specific levels of this factor variable cannot be determined nor can the authors confirm which specific city category details has a relationship with the remaining variables in the Black Friday data set. 
+  
+  In order to estimate causal relationships, two subsets of the original Black Friday data are created to understand how distinct shoppers and product categories can be segmented. Doing so provides insight to the managers of the retail store about where the shoppers to target are, which demographics these shopper's have as well as the products and preferences of different segments. Using these new data sets, revenues by product category and distinct user are calculated. The variables quantity of items bought is also calculated for each shopper and product category. Doing so allows for deeper analysis for the retail to use in its targeted marketing efforts.
+ 
+```{r}
+#Quantity of Users, Products and Revenue
+bf_dis_user = n_distinct(blackfriday_clean$User_ID)
+bf_dis_product = n_distinct(blackfriday$Product_ID)
+total_purchase = sum(blackfriday$Purchase)
+#Gender Breakdwon
+gender=as.data.frame(blackfriday_clean %>% group_by(Gender) %>% summarise(`Number of Distinct shoppers` = n_distinct(`User_ID`)))
+knitr::kable(as.data.table(gender), caption = "Table 1:  Gender")
+```
+  
+  Given the cleaned Black Friday data set, the retail store has 5,891 shoppers making purchases, 3,623 products sold in store and total revenue of  $5,017,668,378. Of the total shoppers at all the stores on Black Friday, about 72% of the shoppers are men and the remaining 28% of shoppers are women. The skewness of the gender of shoppers might lead to a larger total revenue for male than that of female. Therefore, we adopted average Shopper Purchase to reflect the purchase power of each individual shopper. These statistics are further analyzed below. 
+
+```{r}
+avg_district = as.data.frame(blackfriday_clean %>% group_by(City_Category) %>% summarise(`Product Revenue` = sum(Purchase), `Number of Distinct shoppers` = n_distinct(`User_ID`), `Avg. Purchase per Shopper` = `Product Revenue`/`Number of Distinct shoppers`, `Number of Product` = n(),  `Avg. Unit Price per Product` = `Product Revenue`/`Number of Product`, `Product per Shopper` = round(`Number of Product`/`Number of Distinct shoppers`,0)))
+knitr::kable(as.data.table(avg_district), caption = "Table 2: Summary by Each City")
+```
+
+ 
+   The above frequency table demonstrates how sales change across different city categories. **Table 2** shows  city C attracts the most unique shoppers, 3,139; which is larger than the number of shoppers in cities A and B combined. The total revenue brought by city C residents, approximately 1.64 billion dollars, falls in between cities A ($1.3 billion) and B ($2.1 billion). However, the average purchase per unique shopper in city C is $522,003.20, which is much smaller than cities A and B.
+ 
+  Nonetheless, the average purchase per unique shopper in city B is $1,220,522.30. In total, all of the 1,707 unique shoppers from city B spent over 2 billion dollars on the holiday. City A has the fewest distinct shoppers (1,045) and lowest product revenue, yet the higest average purchase per shopper at $1,239,874.40. The difference in revenue between A and B may result from the difference in shoppers populations, assuming there is no significant difference in their purchase behaviors.
+
+  With respect to the quantity of items purchased in each city, city B shoppers buy the most items. The average item price for a product in city B is $9,198.66, less than city C but more than city A. City C, with the most shoppers, has the highest average item price. **Table 2** demonstrates to a manager the need to examine City A. How does an additional item purchased increase revenue per shopper? What demographics describe the shoppers in each city? Will demographics or City impact total expected profit? If so, which maximize expected profits?  The answers to these questions will provide the retail store with the best strategy to form its marketing campaigns. 
+  
+```{r, fig.width = 10, fig.height = 6}
+blank_theme <- theme_minimal()+theme(axis.title.x = element_blank(),axis.title.y = element_blank(),panel.border = element_blank(),panel.grid=element_blank(),axis.ticks = element_blank(),plot.title=element_text(size=14, face="bold"))
+
+p1 = blackfriday_clean %>% filter(City_Category == 'A') %>% group_by(City_Category,Age) %>% summarise(n = n_distinct(User_ID)) %>%mutate(prop = percent(n/1045)) %>% ggplot(aes(x="", y=n, fill=Age)) + geom_bar(width = 1, stat = 'identity', position= "stack") + coord_polar("y") +geom_text(aes(label = prop), position = position_stack(vjust = 0.8), size = 3)+theme_void()+ theme(plot.title = element_text(size=14, face="bold"),axis.text = element_blank(),axis.ticks = element_blank(),panel.grid  = element_blank(),axis.title=element_blank(), legend.title = NULL,legend.position="bottom") +labs(tag = 'Figure 1\n') +labs(subtitle = "City A")
+
+p2= blackfriday_clean %>% filter(City_Category == 'B') %>% group_by(City_Category,Age) %>% summarise(n = n_distinct(User_ID)) %>%mutate(prop = percent(n/1707)) %>% ggplot(aes(x="", y=n, fill=Age)) + geom_bar(width = 1, stat = 'identity', position= "stack") + coord_polar("y") +geom_text(aes(label = prop), position = position_stack(vjust = 0.8), size = 3)+theme_void()+ theme(plot.title = element_text(size=14, face="bold"),axis.text = element_blank(),axis.ticks = element_blank(),panel.grid  = element_blank(),axis.title=element_blank(),legend.position="bottom") +labs(title = 'Age Distribution for Each City',subtitle = "City B")
+
+p3=blackfriday_clean %>% filter(City_Category == 'C') %>% group_by(City_Category,Age) %>% summarise(n = n_distinct(User_ID)) %>%mutate(prop = percent(n/3139)) %>% ggplot(aes(x="", y=n, fill=Age)) + geom_bar(width = 1, stat = 'identity', position= "stack") + coord_polar("y") +geom_text(aes(label = prop), position = position_stack(vjust = 0.8), size = 3)+ theme_void() + theme(plot.title = element_text(size=14, face="bold"),axis.text.x = element_blank(),axis.ticks = element_blank(),panel.grid  = element_blank(), axis.title=element_blank(), legend.position="bottom")  +labs(subtitle = "City C")
+
+ggarrange(p1,p2,p3, ncol = 3, nrow = 1, common.legend = TRUE, legend = 'bottom', align = 'v', widths = c(1, 1, 1))
+``` 
+  
+  
+  There are more shoppers who are 26-35 years old in each city than any other age group. The second largest age segment are shoppers who are 36-45 years. Together, these shoppers who are 26-45 years old comprise 50% of the total customers at the store.
+  
+  
+  
+   Is it best for the retail store to market shoppers with the highest average purchase or the store with the most unique shopper traffic? Should the marketing strategy to be increase average purchase amount in stores with the most shoppers or to increase the number of shoppers in the store with highest grossing average purchase? To answer these questions, we created **Hypothesis 1**: Average shopper purchase of people living in City A is more than those living in cities B and C.
+   
+```{r, fig.width = 10, fig.height = 10}
+unit.price = as.data.frame(User_Category %>% group_by(Product_Category) %>% summarise(`Product Revenue` = sum(`Shopper Purchase`), `Products Sold` = sum(`Number of Products Sold`), `Unit Price ($)` = round(`Product Revenue`/`Products Sold`, 2))) 
+
+g1 = ggplot(unit.price, aes(x = Product_Category, y = `Unit Price ($)`, fill = `Unit Price ($)` )) + geom_col() + scale_fill_gradient(high="#cb4b16",low="#b58900") + labs(title = "Comparing Luxury vs. Normal \nProduct Categories", tag = 'Figure 2\n', x = 'Product Category', y = 'Unit Price ($)')+ annotate("text", x=10, y=21000, label= "$19680", fontface = "bold",size = 4)+ annotate("text", x=13, y=1500, label= "$723", fontface = "bold",size = 4) + labs(x = NULL, subtitle = 'City A')
+
+g2 = ggplot(unit.price, aes(x = Product_Category, y = `Product Revenue`/100000, fill = `Product Revenue`/100000)) + geom_col() + scale_fill_gradient(high="#cb4b16",low="#b58900")+ annotate("text", x=1, y=20000, label= "$18827m", fontface = "bold",size = 4)+ annotate("text", x=13, y=1000, label= "$39m", fontface = "bold",size = 4) +labs(x = 'Product Category',y = 'Product Revenue \n($ Million)', fill = 'Product Revenue \n($ Million)', subtitle = 'City B') 
+
+g3 = ggplot(unit.price, aes(x = Product_Category, y = `Products Sold`/1000, fill = `Products Sold`/1000)) + geom_col() + scale_fill_gradient(high="#cb4b16",low="#b58900")+ annotate("text", x=5, y=160, label= "149k", fontface = "bold",size = 4)+ annotate("text", x=9, y=10, label= "0.4k", fontface = "bold",size = 4) +labs(x = NULL, y = 'Products Sold \n(Thousands)', fill = 'Products Sold \n(Thousands)')
+
+ggarrange(g1,g3,g2, widths = 1:3, nrow = 3, align = 'v', heights=c(1.5,1,1)) 
+knitr::kable(as.data.table(unit.price), caption = "Table 3:  Product Price")
+```
+
+   Analyzing the average unit price of each product category in **Table 3**, the maximum average price is $19,679.97 for products in Category 10 while the minimum price is 722.62 dollars for category 13. Category 5 sells the most products, 148,592 items, while category 9 sells the least amount of products, 404 items. **Figure 2** above demonstrates that normal products are those in categories with low unit prices  and sell a high quantity of items whereas product categories with higher average unit price sell smaller quantities of products refer to luxury products. This initial analysis indicates managers should focus their attention on the product categories that sell normal goods - categories 5 and 8.
+   
+   Below, **Figure 2** analyzes the different product categories at the retail store and the revenue per shopper in each product category.  This allows us to understand the average shopper's purchasing habits by product category. The bar graph demonstrates the revenue of product categories by shopper in a clear manner because product category is a categorical variable that was converted into a factor. Initially **Figure 2** was simply a bar graph; to enhance the graph, it now contains a dodged fill aesthetic by gender, bolded titles and axes titles.  
+
+  On average, product categories 1, 5 and 8 are the most popular product categories amongst shoppers. Category 12 and 13 yield the least revenue per shopper. Using **Figure 2** and **Table 3**, the authors derived **Hypothesis 2**: The most profitable product categories are categories 5 and 8.
+
+```{r}
+blackfriday_user %>% group_by(City_Category, Age, Gender) %>% summarise(n=n(), purchase = sum(`Shopper Purchase`) ,avg = sum(`Shopper Purchase`)/n) %>% ggplot(aes(x =Age, y = avg/100000, fill=factor(Gender))) + geom_col(position="stack") + facet_grid(~City_Category) + labs(title = "Average Purchase Comparison  \nby Age and City", tag = 'Figure 3\n', x="City Category", y= "Purchase \n($ Million)", fill = "Gender") + theme(plot.title = element_text(size=14, face="bold"), axis.text.x = element_text(angle=60, hjust=1), axis.title.x = element_text(size=12, face="bold"), axis.title.y = element_text(size=12, face="bold"), legend.position="bottom") + scale_fill_brewer(palette="Dark2")
+```  
+
+  It is important to note that **Figure 3** is derived from the kernel (https://www.kaggle.com/monethong/who-bought-what). We adjust the kernel's graph from box plot to bar graph, grouping by city, gender and age; then adjusted the variables on each axis. These changes allow for analysis specifically on city category, age and gender's effects on purchasing.  
+
+  If we analyze **Figure 3** purchasing habits by age and gender, male shoppers buy more than their female counterparts in all age groups and all cities. The data portrays a trend of purchasing habits - men purchase significantly more than women in age groups 18-25, 26-35 and 36-45. Shoppers in City B purchase more than shoppers in cities A and C in all age groups except 26-35 and 36-45 years old. Across age groups, shoppers in City C purchase the least regardless of age. 
+  
+  **Figure 3** depicts purchasing revenue by gender and city category. This graph helps us to understand the product purchasing habits of men and women shoppers in different cities. The above bar graph demonstrates the revenue by gender and city in a concise way. Both city category and gender are categorical variables that were previously converted into factors. Initially, **Figure 3** was simple without the fill aesthetic for gender. The current **Figure 3** scales the y-axes of purchases to millions of dollars in order to avoid the axis' intervals being denoted by scientific notation. Additionally, there are bolded titles and axes titles.  
+
+```{r}
+a = blackfriday_clean %>% filter(City_Category == 'A') %>% group_by(User_ID, City_Category) %>% summarise(total_purchase = sum(Purchase))
+b = blackfriday_clean %>% filter(City_Category == 'B') %>% group_by(User_ID, City_Category) %>% summarise(total_purchase = sum(Purchase))
+c = blackfriday_clean %>% filter(City_Category == 'C') %>% group_by(User_ID, City_Category) %>% summarise(total_purchase = sum(Purchase))
+peak = rbind(A =round(density(a$total_purchase)$x[which.max(density(a$total_purchase)$y)],0), B = round(density( b$total_purchase)$x[which.max(density(b$total_purchase)$y)], 0), C = round(density(c$total_purchase)$x[which.max(density (c$total_purchase)$y)],0))
+
+purchase_density <- blackfriday_clean %>% group_by(User_ID, City_Category) %>% summarise(total_purchase = sum(Purchase)) %>% ggplot(aes(x = total_purchase/1000000, ..scaled..)) + geom_density(aes(fill=City_Category)) + labs(x = 'Buyer Purchases ($ Million)', y = 'Number of Buyers', title = "Distribution of Total Purchasing \nby Shopper", tag= "Figure 4\n") + theme(plot.title = element_text(size=14, face="bold"), axis.title.x = element_text(size=12, face="bold"), axis.title.y = element_text(size=12, face="bold"), legend.position= "bottom") + scale_fill_brewer(palette="Dark2") + facet_grid(~City_Category) + annotate(geom="text", x=3, y=1, label=peak)
+purchase_density
+```
+
+   **Figure 4** was derived from Kernel "https://www.kaggle.com/gloriousc/black-friday-analysis." This paper expands the distribution analysis by segmenting buyers and purchases by city. The kernel displayed the distribution as a histogram, here we use a density plot to examine the number of buyers at the retail store and their spread of purchase amounts.   
+   
+  This illustration of buyer purchases shows a downward slope. A portion of shoppers from city B spend more than their peers in cities A and C. Additionally, not many shoppers in city C lie in the right tail - there are fewer customers spending more on purchases. City C is positively skewed, meaning there are more shoppers in C spent less per transaction. City A's spending habits answers our question in **Hypothesis 1** that City A does not spend significantly differently than other cities in the retail firm. This is because city A is less positively skewed, meaning there are more shoppers in A who spend more per transaction. Also, most of shoppers in City B spent $340,086, while most of shoppers in City A and C spent $301,493 and $186,200, respectively.
+
+  This report is trying to determine the customers and demographics that maximize profits on Black Friday. The questions that help this report arrive at profit maximization are 1) Do people living in District A spend differently than those living in District B and C? and 2) Which product are the most profitable? To answer the first question, the variables Shopper Purchase, City_Category, Gender and Age are selected to conduct a two-sample t-test. Based on the categorical nature of City_Category, Gender and Age (measured as factor levels of age ranges), the two-sample t-test was chosen. 
+
+```{r}
+district_a = blackfriday_user %>% filter(City_Category =='A') %>% select(`Shopper Purchase`)
+district_b = blackfriday_user %>% filter(City_Category =='B') %>% select(`Shopper Purchase`)
+district_c = blackfriday_user %>% filter(City_Category =='C') %>% select(`Shopper Purchase`)
+t.test(district_a, district_b, alternative = 'greater')
+t.test(district_a, district_c, alternative = 'greater')
+t.test(district_b, district_c, alternative = 'greater')
+```
+
+
+  In the tests above, we are testing whether there is a difference between the purchase amount of two cities at a time. using a paired two sample t-test. Based on average purchase per shopper, the hypothesis is *People living in City A spend more than their peers in City B and C.* The results yield that shoppers in city A did not spend significantly more than their peers in city B but did spend more than peers in city C. Shoppers in city B spent significantly more than their peers in city C.
+  
+  Therefore, the shopping habits of customers in city A are significantly different from the remaining cities. The results also indicate shoppers in city C spend significantly less than cities A and B. Based on this point, the stores can focus more on learning the spending habits in city C to further understand factors that may lead to the low purchases in city C. For example, is it because that the income level (`Occupation`), that shoppers in city C are new to the city and are not familiar with local stores (`Stay_In_Current_City_Years`) or that the products sold (`Product_Category`) do not meet the needs of shoppers in city C?
+
+#Understanding Shopper Purchases
+##Apriori: Segmenting by City
+
+ Starting with apriori segmentation of the Black Friday data set, the model used is: 
+   
+$$log(Shopper Purchase)= Number of Products Sold + factor(Age)+factor(Gender)+factor(City Category)+ factor(Occupation)$$ **(1)**
+
+  The dependent variable is the `Shopper Purchase` which is the total amount each unique shopper purchases, measured in dollars. The independent variables in **Equation 1** are `Number of Products Sold`, `City Category`, `Age`, `Gender`, and `Occupation`. `Number of Products Sold` is the total number of items a shopper purchases and is a continuous variable.   `City Category` is a categorical variable with three levels and is chosen as the variable to conduct the apriori segmentation. `Gender` (male or female) and `Occupation` (21 categories) are categorical variables and `Age` (years) is an ordinal variable, but all are treated the same and factored in our model. To better understand how the independent variables influence `Shopper Purchase`, the model is enhanced by regressing the logarithm of `Shopper Purchase` on all independent variables. This will allow for a proportional analysis of the increase in shopper purchasing amounts across all independent variables. **Equation 1** yields an AIC of 7199.758, the lowest AIC of all iterations of possible models given the initial variables in the Black Friday data set. This model excludes the variables `Stay_In_City_Years` and `Marital_Status`. To achieve the Apriori segmentation, this model is further divided into three segments based on City_Category:
+
+  **Equation 1** regresses average shopper purchase on the number of products sold given demographic actors of age, gender and occupation. This model is then segmented by shoppers residing in District A, District B and District C. The apriori segmentation of  **Equation 1** uses a subset of the Black Friday data set collapsed on unique User ID.
+  
+```{r include = FALSE}
+###Testing the best model --lowest AIC
+reg1 <- lm(log(`Shopper Purchase`) ~ `Number of Products Sold`+ factor(Age)+factor(Gender) +factor(Marital_Status) + factor(Stay_In_Current_City_Years) + factor(City_Category) +factor(Occupation), data=blackfriday_user)
+stepAIC(reg1)
+```
+```{r include=TRUE}
+#APRIORI SEGMENTATION
+#Segmentation: City A
+m.1 <- lm(log(`Shopper Purchase`) ~ `Number of Products Sold`+ factor(Age)+factor(Gender)+factor(Occupation), data=blackfriday_user[blackfriday_user$City_Category == "A",])
+state_c_vcov.m.1 <- vcovHC(m.1, type = "HC1")
+m.1.c <- coeftest(m.1, vcov = state_c_vcov.m.1)
+#Segmentation: City B
+m.2 <- lm(log(`Shopper Purchase`) ~ `Number of Products Sold`+ factor(Age)+factor(Gender)+factor(Occupation), data=blackfriday_user[blackfriday_user$City_Category == "B",])
+state_c_vcov.m.2 <- vcovHC(m.2, type = "HC1")
+m.2.c <- coeftest(m.2, vcov = state_c_vcov.m.2)
+#Segmentation: City C
+m.3 <- lm(log(`Shopper Purchase`) ~ `Number of Products Sold`+ factor(Age)+factor(Gender)+factor(Occupation), data=blackfriday_user[blackfriday_user$City_Category == "C",])
+state_c_vcov.m.3 <- vcovHC(m.3, type = "HC1")
+m.3.c <- coeftest(m.3, vcov = state_c_vcov.m.3)
+#Interaction terms for aggregate model for AIC comparison
+m.4 <- lm(log(`Shopper Purchase`) ~ `Number of Products Sold`*factor(City_Category) + factor(Age)*factor(City_Category) + factor(Gender)*factor(City_Category) +factor(Occupation)*factor(City_Category), data=blackfriday_user)
+state_c_vcov.m.4 <- vcovHC(m.4, type = "HC1")
+m.4.c <- coeftest(m.4, vcov = state_c_vcov.m.4)
+aprioriAIC=AIC(m.4)
+```
+
+```{r results = "asis"}
+stargazer(m.1, m.2, m.3, type = 'html')  
+```
+
+
+
+
+
+
+  Overall, the proportion of the variance in Shopper Purchase is explained by the about 71.1% of the independent variables in City A, 77.9% of independent variables in City B and 80.8% of independent variables in City C. All of which is analyzed using the Adjusted R2, with respect to the addition of one more variable to the model. This relationship is statistically significant across all City Categories as the F-statistics are all statistically significant at the 0.01% level. Considering of the marketing cost, we suppose that the retail store should only focus on implementations with more than 95% significant level.
+  
+  The above segments reveal interesting patterns. We find -
+  
+1. `gender` and `Number of Products Sold` affects all segments.  All these coefficients are significant at the 99% confidence level. Each additional product sold will significantly increases the `Shopper Purchase` by 0.6% in city A, 0.8% in city B and 1.7% in city C. So for city C, managers should focus on developing strategies that boost sales and increase the number of products sold. With respect to `gender`, a male shopper will significantly increase the `Shopper Purchase` by 13% in city A, 14.8% in city B and 8.1% in city C. While the effect of female shoppers is significant, the magnitude of the increase in `Shopper Purchase` of a woman is smaller than that of a man's. So managers should adjust the supply that meets the need of male shoppers, especially in city B.
+    
+2. With respect to `age`, shoppers who are between 26-50 years old in city C have a significant impact on the `Shopper Purchase`. They increase the `Shopper Purchase` amount by 9.2%-10%. Therefore, for city C, managers can launch new promotions that increase the number of shoppers in age range 26-50 respectively.
+    
+3. With respect to `Occupation`, occupation 12 increases the `Shopper Purchase` of both city B and C by 15% and 9.5%. Managers should further analyze the purchase behaviors for this type of job, making marketing strategy more personal. For city C, occupation 14 and 17 increase the Shopper Purchase by 8% and 7.1%. Occupation 13 has a negative impact on `Shopper Purchase` in cities A and B, -37% and -24.4% respectively. Therefore, we suggest managers either do not spend any of the marketing budget on these segments, or further analyze the shopper profiles to better understand the reason of the negative effect.
+
+##Post-Hoc: Segmenting by Clusters
+
+  The relative quality of the apriori segmentation models, as mentioned above is determined by **Equation 1**'s AIC. The AIC for segmentation by City_Category is 7,199.758. To test whether **Equation 1** is a good model for estimating shopper purchasing amounts, we used post-hoc segmentation as a comparison. The equation remains the same but the segments differ. By scaling the Black Friday data, K-means clustering suggests 6 clusters may be a good alternative to apriori segmentation by City_Category. Using **Equation 1**, post-hoc analysis is conducted with 6 segments using the following equation:
+  
+$$log(Shopper Purchase) = Number of Products Sold + factor(Age) + factor(Gender) + factor(Occupation) + e$$ **(2)**
+ 
+  **Equation 2** is broken down into 6 segments based upon Post-Hoc analysis via k-means clustering. All segments have more men than women. Segment 1 is called `Senior Citizens` because it contains only shoppers ages 55+. `Nomadic & Married` is the second segment because most shoppers stay in their city less than a year and are married. Segment 3 is the `Single City Dwellers` because most shoppers are single and live in their city for 4 or more years. Cluster `One and Done` refers to segment 4 because all shoppers stay in the city for just one year. Segment 5 refers to `Single Professionals` because most shoppers are single in age ranges 26-35. Lastly, segment 6 is labeled `Young & Single` because the shoppers are single and in a younger age range, 18-35 years old. 
+  
+
+```{r warning=FALSE, include=FALSE}
+#CLUSTERING (FOR POST-HOC SEGMENTATION)
+seg.bf  <- blackfriday_user
+summary(seg.bf)
+# Group differences
+seg.summ <- function(data, groups) {aggregate(data, list(groups), function(x) mean(as.numeric(x)))}
+# K-means clustering
+seg.bf.num = model.matrix(~ factor(Gender) + factor(Age) + factor(Stay_In_Current_City_Years) + factor(City_Category) + factor(Marital_Status), data = seg.bf)
+str(seg.bf.num)
+## Scaling the data
+scaled_data = scale(seg.bf.num[,-1]) # remove the UserID
+## How many clusters to choose?
+k.max <- 15
+wss <- sapply(1:k.max, function(k){kmeans(scaled_data, k, nstart=50,iter.max = 20 )$tot.withinss})
+wss
+plot(1:k.max, wss, type="b", pch = 19, frame = FALSE, xlab="Number of clusters K",ylab="Total within-clusters sum of squares")
+# Find the K-means groups
+set.seed(96743)
+seg.k6 <- kmeans(scaled_data, centers=6)
+seg.summ(seg.bf.num, seg.k6$cluster) 
+seg.k6$size
+# Visualizing the overall clusters
+clusplot(seg.bf, seg.k6$cluster, color=TRUE, shade=TRUE, labels=6, lines=0, main="K-means clust")
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+#FIT CLUSTER TO DATA
+fit <- kmeans(seg.bf.num, 6)
+aggregate(seg.bf,by=list(fit$cluster),FUN=mean)
+mydata <- data.frame(seg.bf, fit$cluster)
+```
+
+```{r include=FALSE}
+#POST-HOC REGRESSION
+#######stepAIC - Exploratory Model specification
+try2 <- lm(log(`Shopper.Purchase`) ~ `Number.of.Products.Sold`+ factor(Age)+factor(Gender) +factor(Marital_Status) +factor(Stay_In_Current_City_Years) + factor(City_Category), data=mydata)
+try2.1 <- stepAIC(try2)
+```
+```{r include=TRUE}
+#Segment 1
+lm.seg.1 <- lm(log(`Shopper.Purchase`) ~ `Number.of.Products.Sold`+ factor(Age) +factor(Occupation) +factor(Gender) + factor(City_Category), data=mydata[mydata$fit.cluster == "1",])
+state_c_vcov.lm.seg.1 <- vcovHC(lm.seg.1, type = "HC1")
+lm.seg.1.c <- coeftest(lm.seg.1, vcov = state_c_vcov.lm.seg.1)
+#Segment 2
+lm.seg.2 <- lm(log(`Shopper.Purchase`) ~ `Number.of.Products.Sold`+factor(Gender) +factor(Occupation) + factor(City_Category) , data=mydata[mydata$fit.cluster == "2",])
+state_c_vcov.lm.seg.2 <- vcovHC(lm.seg.2, type = "HC1")
+lm.seg.2.c <- coeftest(lm.seg.2, vcov = state_c_vcov.lm.seg.2)
+#Segment 3
+lm.seg.3 <- lm(log(Shopper.Purchase) ~ Number.of.Products.Sold+ factor(Age) +factor(Occupation) + factor(Gender)+ factor(City_Category) , data=mydata[mydata$fit.cluster == "3",])
+state_c_vcov.lm.seg.3 <- vcovHC(lm.seg.3, type = "HC1")
+lm.seg.3.c <- coeftest(lm.seg.3, vcov = state_c_vcov.lm.seg.3)
+#Segment 4
+lm.seg.4 <- lm(log(Shopper.Purchase) ~ Number.of.Products.Sold+ factor(Age) +factor(Occupation) +factor(Gender), data=mydata[mydata$fit.cluster == "4",])
+state_c_vcov.lm.seg.4 <- vcovHC(lm.seg.4, type = "HC1")
+lm.seg.4.c <- coeftest(lm.seg.4, vcov = state_c_vcov.lm.seg.4)
+#Segment 5
+lm.seg.5 <- lm(log(Shopper.Purchase) ~ Number.of.Products.Sold +factor(Gender)+factor(Occupation) + factor(City_Category) , data=mydata[mydata$fit.cluster == "5",])
+state_c_vcov.lm.seg.5 <- vcovHC(lm.seg.5, type = "HC1")
+lm.seg.5.c <- coeftest(lm.seg.5, vcov = state_c_vcov.lm.seg.5)
+#Segment 6
+lm.seg.6 <- lm(log(Shopper.Purchase) ~ Number.of.Products.Sold+ factor(Age) +factor(Occupation) +factor(Gender) + factor(City_Category) , data=mydata[mydata$fit.cluster == "6",])
+state_c_vcov.lm.seg.6 <- vcovHC(lm.seg.6, type = "HC1")
+lm.seg.6.c <- coeftest(lm.seg.6, vcov = state_c_vcov.lm.seg.6)
+#Interaction terms for aggregate model for AIC comparison
+lm.seg.7 <- lm(log(Shopper.Purchase) ~ Number.of.Products.Sold*factor(fit.cluster) +factor(Age)*factor(fit.cluster) + factor(Gender)*factor(fit.cluster) +factor(Occupation)*factor(fit.cluster) + factor(City_Category)*factor(fit.cluster), data=mydata)
+postAIC=AIC(lm.seg.7)
+```
+
+```{r results = 'asis'}
+stargazer(lm.seg.1, lm.seg.2, lm.seg.3, lm.seg.4, lm.seg.5, lm.seg.6, type = 'html')
+```
+
+
+
+
+Across segments, managers should focus on increasing the number of products sold, but specifically on segment 6, the `Young & Single`. When one additional product is sold to the `Young & Single`, `Shopper Purchase` increases by 0.9%, holding other factors constant at the 0.01% significance level. Most statistically significant age range for the Black Friday shoppers is to focus on the older customers in the `Young & Single` segment. Specifically shoppers ages 36-45 years old have the largest magnitude impact, ranging in a 22.7-26.8% increase in `Shopper Purchase` amount, holding other factors constant. Ages 18-55 are not statistically relevant for "Senior Citizens", "Nomadic & Married" and "One and Done".
+
+  With respect to gender, both men and women have a statistically significant relationship with average purchase amount per shopper in each segment. However, across segments women have a smaller impact on `Shopper Purchase` than men. A male `Single City Dweller` increases the `Shopper Purchase` by 17%. A female `senior citizen` has the largest impact on `Shopper Purchase`, with respect to all women in the other segments.
+  
+  Occupation categories that do not have a statistically significant relationship with `Shopper Purchase` amount in any cluster segment are categories 1, 2, 8, 13, 14, 16 and 18. Relevant in segment 1 only is Occupation categories 6, 7, 9, 15, and 21. Occupations 6, 7 and 9 negatively impact `Shopper Purchase` by an average of about 25%. Occupation category 5 in `Single City Dwellers` decreases the amount a shopper buys by about 76%. Consequently, no effort or funds should be spent marketing towards this segment. In the same segment, however, Occupation 19 positively increases `Shopper Purchase` by 53.4%, holding other factors constant.  Occupation 12 is significant in segments `One and Done`, `Single Professionals` and `Young & Single`. These results indicate that a unique marketing approach based on the Occupation of the customer might be necessary. 
+  
+  Lastly, City A is statistically significant predictor of a positive increase in `Shopper Purchase` amount in all 6 segments. `Senior Citizens` living in City B increase the amount shoppers spend by 23.2% and `Single City Dwellers` living in city B increase customer spending by 16.7%. `Young & Single` customers residing in city C increase `Shopper Purchase` by 11.5%. 
+
+##Model Selection
+
+  In terms of model selection, apriori regression versus post-hoc regression, a comparison of the AIC's above suggests the quality regression model is the Apriori segmentation. Post-Hoc segmentation yields AIC=9,663.19 whereas Apriori segmentation yields AIC=7,199.76. Therefore, the managers should use the below analysis of the Apriori shopper segmentation to inform marketing policy. 
+
+##Shopper Purchases by City and Product Category
+
+The final analysis examines shopper purchases on the product categories of the retail firm. The model omits the demographic variables of Marital_Status and Stay_In_City_Years. This is because the smallest AIC (AIC= -28,687.26) is derived using the equation below: 
+
+$$log(Shopper Purchase) ~ factor(Product Category) + Number of Products Sold +  factor(Gender) + factor(Age) + factor(City Category) + factor(Occupation) + e$$ **(3)**
+
+**Model 3** is segmented by city category because Apriori analysis resulted in a smaller AIC as determined by the comparison of apriori and post-hoc AIC. User ID is used to match the clusters to the user category subset of Black Friday data. 
+
+```{r include= FALSE}
+#FIT CLUSTER TO USER CATEGORY DATA
+user_fit = mydata %>% select(User_ID, fit.cluster)
+User_Category_fit =User_Category %>% right_join(user_fit, by = 'User_ID')
+#TESTING FINAL MODEL:
+test6 <- lm(log(`Shopper Purchase`) ~  factor(Product_Category) + `Number of Products Sold`+ factor(Product_Category) + factor(Gender) + factor(Age) + factor(Marital_Status) +factor(Stay_In_Current_City_Years) + factor(City_Category)+factor(Occupation), data=User_Category_fit)
+test6.2 <- stepAIC(test6)
+```
+``` {r include=TRUE}
+reg6.1 <- lm(log(`Shopper Purchase`) ~  `Number of Products Sold`+ factor(Product_Category) + factor(Gender) + factor(Occupation) + factor(Age), data=User_Category[User_Category$City_Category == "A",])
+
+reg6.2 <- lm(log(`Shopper Purchase`) ~  `Number of Products Sold`+ factor(Product_Category) + factor(Gender) + factor(Occupation) + factor(Age), data=User_Category[User_Category$City_Category == "B",])
+
+reg6.3 <- lm(log(`Shopper Purchase`) ~  `Number of Products Sold`+ factor(Product_Category) + factor(Gender) + factor(Occupation) + factor(Age), data=User_Category[User_Category$City_Category == "C",])
+```
+```{r results = 'asis'}
+stargazer(reg6.1, reg6.2, reg6.3, type = 'html')
+```
+
+
+  With the result above, the managers can emphasize increasing the number of products sold in each city. Specifically, in city C, one additional product sold will result in a 6.9% increase in a shopper's purchase. With respect to gender, male shoppers result in higher average purchases.  Men in city C spend much less than their peers in city A and B. If marketed to effectively, these men greatly improve sales and ultimately profit.
+  
+  With respect to product category, product category 1 is dropped in the regression to create a mutually exclusive and exhaustive analysis of products. Consequently, all other products are compared to category 1 which results in negative coefficients on the other products and a decrease in shopper purchases. This is because shopper purchases for category 1 are significantly higher than most other products, as seen in **Figure 2**. Due to this, managers should understand that other products do not necessarily decrease shopper spending, but relative to category 1 do not have as great an impact on spending. To analyze the relationship of the remaining product categories, Managers should focus on the product categories whose coefficients from **Model 3** are closest to 0 (closest to the behavior of products in category 1). Therefore, in general, category 1, 2, 5, 6 and 8 perform well compared to the rest of the products. And across the cities, the store should sell more products in category 6, since they will generate the revenue similar to the products in category 1. From the luxury and normal analysis in **Figure 2**, since product category 6 might be luxury items, managers should target shoppers who are older with a decent job, because they might have higher purchasing power.
+  
+   As for age, what clashes with common assumptions is that purchase power of shoppers age 0-17 is relatively high - we expect kids and teenagers who do not earn money to spend less. As we can see, shoppers age 55 or more in city A and shoppers age 18-25 in city B will significantly lower the shopper purchase by 18.7% and 11.6% with respect to shoppers age 0-17. Commonly, it is assumed the working population spends their income on retail meaning they should have a positive influence on average shopper spending at the retail store. This might be because customer account with the store is created by a teenager but these teenagers use their parents' card to pay the bill. Shoppers age 26-50, the age range where most shoppers have their own unique credit card, living in city A increase the shopper purchase by 1-9% with respect to shoppers age 0-17. While in city C, shoppers age 36-45 and 51-55 increase the shopper purchase by 2-3%. This might be result from the fact that these shopper have work and earn money, so their purchasing power is higher than teenagers.
+  
+  Occupations that are not statistically significant predictors of shopper spending habits in any city are Occupations 1, 2, 4, 5, 6, 9, 14, 15, and 18. Across the cities, shoppers with occupation 7,8 and 12 in city A, occupation 10, 11 and 13 in city B, and occupation 8 and 9 will decrease the shopper purchase. This means these shoppers are very budget conscious and do not shop. So managers could either left the market of these groups or conduct campaigns and promotions to stimulate these shoppers. Shoppers with Occupation 3 increase `Shopper Purchase` in city B and C by 8.1% and 5.7%, on average.
+  
+
+#Predictive Analysis
+
+  To see how managers should focus marketing efforts, predictive analysis is used to answer the questions: Which segments are expected to be the most profitable? Which product categories within each segment should managers devote extra attention in order to increase profits? This is done by splitting the clustered Black Friday data into training the data and test data. The training data is used to choose the best predictive model from 16 models. The model chosen to predict shopper purchases had the smallest predictive error, or root mean square error.
+
+```{r message=FALSE, warning=FALSE}
+# Get Training/Validation/Testing Data
+set.seed(12345678)
+validation.index = sample(seq(1,nrow(User_Category_fit)), floor(0.10*nrow(User_Category_fit)))
+validation.data = User_Category_fit[validation.index, ]
+training.data = User_Category_fit[-validation.index, ]
+
+### Training the data on different models
+### Our metric here is ROOT MEAN SQUARE ERROR (RMSE). 
+prediction.error = function(lm_model, test.data){
+  predicted.purchase = predict(lm_model, test.data) 
+  error = sqrt(mean((predicted.purchase- test.data$`Shopper Purchase`)^2))}
+
+### MODEL 1: SAME INTERCEPT, SAME SENSITIVITY 
+bf_lm1.1 = lm(`Shopper Purchase` ~ `Number of Products Sold`, data = training.data)
+bf_lm1.2 = lm(`Shopper Purchase` ~ `Number of Products Sold` + factor(fit.cluster), data = training.data)
+
+### MODEL 2: DIFFERENT INTERCEPT, SAME SENSITIVITY
+bf_factored2.1 = lm(`Shopper Purchase` ~ `Number of Products Sold` + factor(Age) + factor(Gender) + factor(`City_Category`) + factor(Occupation), data = training.data)
+bf_factored2.2 = lm(`Shopper Purchase` ~ `Number of Products Sold` + factor(Gender) + factor(`City_Category`) + factor(Occupation), data = training.data)
+bf_factored2.3 = lm(`Shopper Purchase` ~ `Number of Products Sold` + factor(`City_Category`) + factor(Occupation), data = training.data)
+bf_factored2.4 = lm(`Shopper Purchase` ~ `Number of Products Sold` + factor(Occupation), data = training.data)
+bf_factored2.5 = lm(`Shopper Purchase` ~ `Number of Products Sold` + factor(`City_Category`) , data = training.data)
+
+### MODEL 3: DIFFERENT INTERCEPT, DIFFERENT SENSITIVITY 
+bf_interaction3.1 = lm(`Shopper Purchase` ~ `Number of Products Sold`*factor(City_Category)+ factor(Age)*factor(City_Category) + factor(Gender)*factor(City_Category) + factor(Occupation)*factor(City_Category) + factor(City_Category), data = training.data)
+bf_interaction3.2 = lm(`Shopper Purchase` ~ `Number of Products Sold`*factor(City_Category)+ factor(Age)*factor(City_Category) + factor(Gender)*factor(City_Category) + factor(Occupation)*factor(City_Category) + factor(City_Category) + factor(fit.cluster), data = training.data)
+bf_interaction3.3 = lm(`Shopper Purchase` ~ `Number of Products Sold`*factor(fit.cluster)+ factor(Age)*factor(fit.cluster) + factor(Gender)*factor(fit.cluster) + factor(Occupation)*factor(fit.cluster) + factor(City_Category) + factor(fit.cluster), data = training.data)
+
+### MODEL 4: SAME INTERCEPT, SAME SENSITIVITY, allowing for #product_sold^2
+polyLM4.1 = lm(`Shopper Purchase` ~ poly(`Number of Products Sold`,2), data=training.data)
+polyLM4.2 = lm(`Shopper Purchase` ~ poly(`Number of Products Sold`,2) + factor(Product_Category), data=training.data)
+
+### MODEL 5: SAME INTERCEPT, SAME ELASTICITY
+logLM5.1 = lm(`Shopper Purchase`~ log(`Number of Products Sold`), data=training.data)
+logLM5.2 = lm(`Shopper Purchase`~ log(`Number of Products Sold`) + factor(fit.cluster), data=training.data)
+
+### MODEL 6: DIFFERENT INTERCEPT, DIFFERENT ELASTICITY
+bf_factored_log6.1 = lm(`Shopper Purchase` ~ log(`Number of Products Sold`)*factor(City_Category) + factor(Age)*factor(City_Category) + factor(Gender)*factor(City_Category) + factor(Occupation)*factor(City_Category) + factor(`City_Category`), data = training.data)
+bf_factored_log6.2 = lm(`Shopper Purchase` ~ log(`Number of Products Sold`)*factor(City_Category) + factor(Age) + factor(Gender)*factor(City_Category) + factor(`City_Category`) + factor(fit.cluster), data = training.data)
+
+error_model1.1 = prediction.error(bf_lm1.1, validation.data)
+error_model1.2 = prediction.error(bf_lm1.2, validation.data)
+error_model2.1 = prediction.error(bf_factored2.1, validation.data)
+error_model2.2 = prediction.error(bf_factored2.2, validation.data)
+error_model2.3 = prediction.error(bf_factored2.3, validation.data)
+error_model2.4 = prediction.error(bf_factored2.4, validation.data)
+error_model2.5 = prediction.error(bf_factored2.5, validation.data)
+error_model3.1 = prediction.error(bf_interaction3.1, validation.data)
+error_model3.2 = prediction.error(bf_interaction3.2, validation.data)
+error_model3.3 = prediction.error(bf_interaction3.3, validation.data)
+error_model4.1 = prediction.error(polyLM4.1, validation.data)
+error_model4.2 = prediction.error(polyLM4.2, validation.data)
+error_model5.1 = prediction.error(logLM5.1, validation.data)
+error_model5.2 = prediction.error(logLM5.2, validation.data)
+error_model6.1 = prediction.error(bf_factored_log6.1, validation.data)
+error_model6.2 = prediction.error(bf_factored_log6.2, validation.data)
+
+error = data.frame(Names=c("Simple 1","Simple 2", "Store FE 2.1","Store FE 2.2", "Store FE 2.3", "Store FE 2.4", "Store FE 2.5", "City Interactions 3.1", "City Interactions 3.2", "City Interactions 3.3","Polynomial 4.1", "Polynomial 4.2","log 5.1", "log 5.2", "Log*Store FE 6.1", "Log*Store FE 6.2"), Error = c(error_model1.1, error_model1.2, error_model2.1, error_model2.2 , error_model2.3, error_model2.4, error_model2.5, error_model3.1, error_model3.2, error_model3.3, error_model4.1, error_model4.2,error_model5.1, error_model5.2,error_model6.1, error_model6.2 ))
+
+knitr::kable(as.data.table(error), caption = "Table 3  Prediction Error")
+```
+
+  To choose the model with the lowest prediction error, we calculated the Root Mean Square Error for each model. The above predictive analysis concludes that the model with the smallest root mean square error is Model 4.2. This model is a polynomial which indicates that the relationship between `Number of Products Sold` and `Shopper Purchase` is more complex than a linear relationship. This model is the appropriate model to use when predicting future Shopper Purchase habits of shoppers.
+
+```{r echo=T, message=FALSE, warning=FALSE, results='hide'}
+########PREDICT Shopper Purchase BASED ON USER
+test.data = User_Category_fit %>% group_by(City_Category, Product_Category) %>% summarize(`Number of Products Sold` = mean(`Number of Products Sold`))
+
+predicted.y = predict(polyLM4.2, test.data, se.fit = TRUE)
+
+profit.margin = 0.3
+test.data$predicted.y = predicted.y$fit
+test.data$se.fit = predicted.y$se.fit
+
+## Upper limit of confidence interval for each predicted y
+test.data$upper.limit = test.data$predicted.y + qnorm(0.975)*test.data$se.fit
+## Lower limit of confidence interval for each predicted y
+test.data$lower.limit = test.data$predicted.y - qnorm(0.975)*test.data$se.fit
+
+## Expected Profit at each observation/row/instance
+test.data$Expected.Profit = profit.margin*test.data$predicted.y
+
+## Upper limit of confidence interval for each expected profit
+##### remove `Shopper Purchase`
+test.data$ProfitUpperLimit = profit.margin*test.data$upper.limit
+## Lower limit of confidence interval for each expected profit
+test.data$ProfitLowerLimit = profit.margin*test.data$lower.limit
+
+## Total Profit is sum of individual profit
+Total.Profit = sum(test.data$Expected.Profit)
+## Upper limit on total profits is the sum of upper limits for individual profits
+TotalProfitUpperLimit = sum(test.data$ProfitUpperLimit)
+## Lower limit on total profits is the sum of lower limits for individual profits
+TotalProfitLowerLimit = sum(test.data$ProfitLowerLimit)
+```
+```{r eval=TRUE}
+#total profit CI
+total_CI.95=cbind(`City_Category` = 'Total',`Predicted.Profit` = round(Total.Profit/1000,2), UpperLimit = round(TotalProfitUpperLimit/1000,2), LowerLimit = round(TotalProfitLowerLimit/1000,2))
+#knitr::kable(as.data.table(total_CI.95), title = "Table 4  Confidence Interval for Total Expected Profit")
+
+#by city CI 
+city_CI.95_1 = test.data %>% group_by(City_Category) %>% summarise(`Predicted.Profit` = sum(Expected.Profit)/1000, LowerLimit = sum(ProfitLowerLimit)/1000, UpperLimit = sum(ProfitUpperLimit)/1000)
+city_CI.95_1$Predicted.Profit= round(city_CI.95_1$Predicted.Profit,2)
+city_CI.95_1$UpperLimit = round(city_CI.95_1$UpperLimit,2)
+city_CI.95_1$LowerLimit = round(city_CI.95_1$LowerLimit,2)
+knitr::kable(as.data.table(rbind(city_CI.95_1, total_CI.95)), title = "Table 4  Confidence Interval for Total Expected Profit")
+
+#by cluster*category CI
+city_CI.95_2 = test.data %>% group_by(City_Category, Product_Category) %>% summarise(`Predicted.Profit` = sum(Expected.Profit)/1000, LowerLimit = sum(ProfitLowerLimit)/1000, UpperLimit = sum(ProfitUpperLimit)/1000) 
+city_CI.95_2$Predicted.Profit= round(city_CI.95_2$Predicted.Profit,2)
+city_CI.95_2$UpperLimit = round(city_CI.95_2$UpperLimit,2)
+city_CI.95_2$LowerLimit = round(city_CI.95_2$LowerLimit,2)
+new_city_CI.95_2 = city_CI.95_2 %>% top_n(2, Predicted.Profit)
+knitr::kable(as.data.table(new_city_CI.95_2), title = "Table 5  Confidence Interval Total Expected Profit By City and Product")
+```
+
+  Therefore, with 95% confidence, expected total profit on the test data for Black Friday lies between [$1097.8 thousand, $1193.75 thousand]. Managers can further breakdown expected profits by city and product category. If managers wish to target the most profitable city, they should spend their time building marketing strategies around shoppers in City A. Predicted Profit for shoppers living in City A is about $476 thousans ; with 95% confidence average expected profit will lie between [$ 460 thousand, $492 thousand]. Specifically, the firm should focus its marketing efforts on the top profitable product categories - categories 5 and 1. Products in category 5 are the most profitable items in each city, the second most profitable products are in category 1 in cities B and C. In City A, the second most profitable product is category 8.
+
+
+#Conclusion
+
+  This report suggests the Black Friday sales data from the retail store should employ multiple marketing strategies. The overall goal should be to maximize expected profits. To maximize profits, it is necessary to increase average shopper revenue which is achieved by by increasing the number of items purchased for each shopper. Revisiting the hypotheses analyzed, the shopper data is segmented by city to focus the marketing team's efforts and establish targeted campaigns. Additionally, this report breaks down the most profitable product categories and demographics within each city.
+
+  Across all analysis, an increase in one item sold to a shopper positively impacts the total amount purchased. The results above indicate the retail store should focus its marketing efforts on both men and women who live in City A and buy Product Categories 5 and 8 because they are expected to maximize profits, holding other factors constant. This demographic has a positive effect on individual shopper purchase amounts.  While the effect of female shoppers is significant in all cities, the magnitude of the increase in `Shopper Purchase` of a woman is smaller than that of a man's. So managers should adjust the supply that meets the need of male shoppers, especially in city B. Further breaking down gender by age, managers should amplify the increase in Shopper Purchase amount by targeting shoppers 18-50 years old.  Managers should targeting shoppers who are older with a decent job, because they are likely to have higher purchasing power.
+  
+  These customers may have certain jobs that position them to increase profits. Specifically managers should target customers who work in Occupation categories 3, 6 and 20. Shoppers with Occupation 3 increase `Shopper Purchase` in city B and C by 8.1% and 5.7%, on average. In city A, occupation category 16 increases spending by 15.8 for the average shopper and Category 20 by 11.9%.
+  
+  Lastly, the marketing efforts should emphasis the product category specifically when marketing. The product category information indicates that any product category that follows the behavior purchasing behavior of category 1 will positively impact average shopper purchase amounts. The second and third product categories that yield highest profits are categories 5 and 8. Managers should create marketing strategies to increase sales of each of these categories in all cities. There is room for sales growth in product category 6. In all the cities, the retail store should sell more products in category 6 since they will generate revenue similar to the products in category 1. According to **Figure 2**, products in category 6 might be luxury items that can increase profits. Another approach is to change the pricing strategy on categories 2, 3, and 11 to maximize profits.  It is important to note that without knowing what product categories or occupation are, it is hard to determine the the product types or low income occupations in each segment that negatively impact customer spending. 
+ 
+  All of the above strategy suggestions should be factored into the marketing budget. Such strategies can come in the forms of promotions, campaigns, increasing price and/or slashing the markup of some products in order to make products affordable. Doing so, the managers can still focus on the above segment of shoppers and maintain, if not increase, purchasing habits.
